@@ -1,6 +1,7 @@
 import struct
 import numpy as np
 import io
+import argparse
 
 
 #Takes in .npz, converts it directly to bytes and performs LZW compression directly from memory 
@@ -88,14 +89,37 @@ def lzwCompressBytes(rawData: bytes) -> bytes:
 def compressNpzToLzw(inputNpzPath: str, outputLzwPath: str) -> None:
     # the interface between .npz -> bytes and bytes to compressed file
     rawPayloadBytes = npzToBytes(inputNpzPath)
+    originalFileSize = len(rawPayloadBytes)
+
     compressedBytes = lzwCompressBytes(rawPayloadBytes)
+    compressedFileSize = len(compressedBytes)
 
     with open(outputLzwPath, 'wb') as f_out:
         f_out.write(compressedBytes)
 
-    print(f"Compressed '{inputNpzPath}' -> '{outputLzwPath}' successfully")
+    
+    # compare file sizes
+    if originalFileSize > 0:
+        compressionRatio = (1 - (compressedFileSize/originalFileSize)) * 100
+        spaceSaved = originalFileSize - compressedFileSize
+    else:
+        compressionRatio = 0.0
+        spaceSaved = 0
 
-# testing
-input = "/Users/maciej/VS Code/OrbitCompressionAlgorithm/pythonLZWRewrite/S2B_60HXD_20170910_0_L2A.npz"
-output = "/Users/maciej/VS Code/OrbitCompressionAlgorithm/pythonLZWRewrite/outputLzw.lzw"
-compressNpzToLzw(input, output)
+    print(f"Compressed '{inputNpzPath}' -> '{outputLzwPath}' successfully")
+    print(f"The original file size: {originalFileSize:,} bytes")
+    print(f"The compressed file size: {compressedFileSize:,} bytes")
+    print(f"This saved: {spaceSaved:,} bytes (reduction of {compressionRatio:.2f}%)")
+
+# fetch input and output from CLI input
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    # get file paths
+    parser.add_argument("inputNpz", type=str, help="Path to the .npz input file")
+    parser.add_argument("outputLzw", type=str, help="Path to the .lzw output file")
+
+    args = parser.parse_args()
+
+    # run with args
+    compressNpzToLzw(args.inputNpz, args.outputLzw)
