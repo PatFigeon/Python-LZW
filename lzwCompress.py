@@ -2,9 +2,26 @@ import struct
 import numpy as np
 import io
 import argparse
+import os
 
 
-#Takes in .npz, converts it directly to bytes and performs LZW compression directly from memory 
+#Takes in .npz, converts it directly to bytes and performs LZW compression directly from memory
+
+# check if provided input file is real and
+def validateInputFile(pathStr: str) -> str:
+    if not os.path.exists(pathStr):
+        raise argparse.ArgumentTypeError(f"The file '{pathStr}' does not exist.")
+    if not os.path.isfile(pathStr):
+        raise argparse.ArgumentTypeError(f"'{pathStr} is not an operable file.")
+    return pathStr
+
+# check if provided output directory is real
+def validateOutputFile(pathStr: str) -> str:
+    outputDir = os.path.dirname(pathStr) or "."
+    if not os.path.exists(outputDir):
+        raise argparse.ArgumentTypeError(f"Output directory '{pathStr}' does not exist.")
+    return pathStr
+
 
 # conver .npz to bytes
 def npzToBytes(npzFilePath: str) -> bytes:
@@ -113,11 +130,11 @@ def compressNpzToLzw(inputNpzPath: str, outputLzwPath: str) -> None:
 
 # fetch input and output from CLI input
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Compress .npz into .lzw")
 
     # get file paths
-    parser.add_argument("inputNpz", type=str, help="Path to the .npz input file")
-    parser.add_argument("outputLzw", type=str, help="Path to the .lzw output file")
+    parser.add_argument("inputNpz", type=validateInputFile, help="Path to the .npz input file")
+    parser.add_argument("outputLzw", type=validateOutputFile, help="Path for the generated .lzw output file")
 
     args = parser.parse_args()
 
