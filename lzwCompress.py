@@ -2,9 +2,9 @@ import struct
 import numpy as np
 import io
 
-"""
-Takes in .npz, converts it directly to bytes and performs LZW compression directly from memory 
-"""
+
+#Takes in .npz, converts it directly to bytes and performs LZW compression directly from memory 
+
 # conver .npz to bytes
 def npzToBytes(npzFilePath: str) -> bytes:
     # load .npz into memory
@@ -39,13 +39,63 @@ def npzToBytes(npzFilePath: str) -> bytes:
 
     return buffer.getvalue()
 
+initDictSize = 8
+maxDictSize = 256
 
-# test routine
-npzPath = "/Users/maciej/VS Code/OrbitCompressionAlgorithm/OriginalImplementation/LZW_image_compression/S2B_60HXD_20170910_0_L2A.npz"
-memoryBytes = npzToBytes(npzPath)
+# LZW compression
+def lzwCompressBytes(rawData: bytes) -> bytes:
 
-with open ("/Users/maciej/VS Code/OrbitCompressionAlgorithm/OriginalImplementation/LZW_image_compression/outputTest.bin", "rb") as f:
-    fileBytes = f.read()
+    # initialise dictionary
+    dictionary = {bytes([i]): i for i in range(initDictSize)}
+    dictSize = initDictSize
 
-assert memoryBytes == fileBytes, "You biffed it"
-print ("Congratuwelldone, those 3 hours of reading were worth it")
+    compressedCodes = []
+    sequence = b""
+
+    # compression loop
+    for byteInt in rawData:
+        currentByte = bytes([byteInt])
+        newSequence = sequence + currentByte
+
+        if newSequence in dictionary:
+            sequence = newSequence
+        else:
+            # emit code for existing sequence
+            if sequence in dictionary:
+                compressedCodes.append(dictionary[sequence])
+
+            # if space allows, add new pattern to dictionary
+            if dictSize < maxDictSize:
+                dictionary[newSequence] = dictSize
+                dictSize +=1
+
+            # reset to current byte
+            sequence = currentByte
+
+    # emit code for remaining sequence
+    if sequence in dictionary:
+        compressedCodes.append(dictionary[sequence])
+
+    # produce header for decompression: 4-byte int, little-endian
+    outputBytes = bytearray(struct.pack('<i', dictSize))
+
+    # payload: 4-byte int per code
+    for code in compressedCodes:
+        outputBytes.extend(struct.pack('<i', code))
+
+    return bytes(outputBytes)
+
+def compressNpzToLzw(inputNpzPath: str, outputLzwPath: str) -> None:
+    # the interface between .npz -> bytes and bytes to compressed file
+    rawPayloadBytes = npzToBytes(inputNpzPath)
+    compressedBytes = lzwCompressBytes(rawPayloadBytes)
+
+    with open(outputLzwPath, 'wb') as f_out:
+        f_out.write(compressedBytes)
+
+    print(f"Compressed '{inputNpzPath}' -> '{outputLzwPath}' successfully")
+
+# testing
+input = "/Users/maciej/VS Code/OrbitCompressionAlgorithm/pythonLZWRewrite/S2B_60HXD_20170910_0_L2A.npz"
+output = "/Users/maciej/VS Code/OrbitCompressionAlgorithm/pythonLZWRewrite/outputLzw.lzw"
+compressNpzToLzw(input, output)
