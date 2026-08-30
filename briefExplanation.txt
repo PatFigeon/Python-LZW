@@ -1,0 +1,10 @@
+Upon doing some digging, both the original C implementation and first python rewrite didn't actually compress the file.
+Instead, the perceived decrease in file size was pure data loss due to a bad dictionary.
+This dictionary was simply too small to allow for the .npz to properly compress
+Hence ~58% and ~65% (C and Py respectively) of it was simply lost.
+
+This new version compresses the test file (also in this folder) by ~49%.
+The decompressed version is over twice the size of the original file, but there is a reason:
+The test .npz isn't a pure, uncompressed version. It has already been passed through DEFLATE.
+As a result, this decompression algorithm undoes that inherent DEFLATE compression too, giving back the full .npz
+(however making it return the .npz with DEFLATE still applied should be relatively simple to implement)

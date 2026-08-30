@@ -7,7 +7,7 @@ import os
 
 #Takes in .npz, converts it directly to bytes and performs LZW compression directly from memory
 
-# check if provided input file is real and
+# check if provided input file is real
 def validateInputFile(pathStr: str) -> str:
     if not os.path.exists(pathStr):
         raise argparse.ArgumentTypeError(f"The file '{pathStr}' does not exist.")
@@ -23,14 +23,14 @@ def validateOutputFile(pathStr: str) -> str:
     return pathStr
 
 
-# conver .npz to bytes
+# convert .npz to bytes
 def npzToBytes(npzFilePath: str) -> bytes:
     # load .npz into memory
     data = np.load(npzFilePath)
     buffer = io.BytesIO()
 
     # write metadata: number of keys (as a 4 byte unsigned int)
-    buffer.write(struct.pack('I', len(data.files)))
+    buffer.write(struct.pack('<I', len(data.files)))
 
     for key in data.files:
         array = data[key]
@@ -39,16 +39,16 @@ def npzToBytes(npzFilePath: str) -> bytes:
 
         # write key name length and key string
         keyBytes = key.encode('utf-8')
-        buffer.write(struct.pack('I', len(keyBytes)))
+        buffer.write(struct.pack('<I', len(keyBytes)))
         buffer.write(keyBytes)
 
         # write array dimensions
-        buffer.write(struct.pack('I', len(shape)))
-        buffer.write(struct.pack('I' * len(shape), *shape))
+        buffer.write(struct.pack('<I', len(shape)))
+        buffer.write(struct.pack('<' + 'I' * len(shape), *shape))
 
         # write data type length and string
         dtypeBytes = dtypeStr.encode('utf-8')
-        buffer.write(struct.pack('I', len(dtypeBytes)))
+        buffer.write(struct.pack('<I', len(dtypeBytes)))
         buffer.write(dtypeBytes)
 
     # write raw array bytes
@@ -57,8 +57,32 @@ def npzToBytes(npzFilePath: str) -> bytes:
 
     return buffer.getvalue()
 
-initDictSize = 8
-maxDictSize = 256
+initDictSize = 256
+maxDictSize = 2 ** 20
+initCodeBits = 9
+maxCodeBits = 20
+
+class BitWriter:
+    def __init__(self):
+        self.buffer = bytearray()
+        self.bitAccumulator = 0
+        self.bitCount = 0
+
+    def writeBits(self, value: int, numBits: int) -> None:
+        self.bitAccumulator |= (value << self.bitCount)
+        self.bitCount += numBits
+        while self.bitCount >= 8:
+            self.buffer.append(self.bitAccumulator & 0xFF)
+            self.bitAccumulator >>= 8
+            self.bitCount -= 8
+
+    def getBytes(self) -> bytes:
+        if self.bitCount > 0:
+            self.buffer.append(self.bitAccumulator & 0xFF)
+            self.bitAccumulator = 0
+            self.bitCount = 0
+        return bytes(self.buffer)
+    
 
 # LZW compression
 def lzwCompressBytes(rawData: bytes) -> bytes:
@@ -66,9 +90,16 @@ def lzwCompressBytes(rawData: bytes) -> bytes:
     # initialise dictionary
     dictionary = {bytes([i]): i for i in range(initDictSize)}
     dictSize = initDictSize
+    codeBits = initCodeBits
 
-    compressedCodes = []
+    writer = BitWriter()
+    numCodes = 0
     sequence = b""
+
+    def emit(code: int) -> None:
+        nonlocal numCodes
+        writer.writeBits(code, codeBits)
+        numCodes +=1
 
     # compression loop
     for byteInt in rawData:
@@ -79,27 +110,28 @@ def lzwCompressBytes(rawData: bytes) -> bytes:
             sequence = newSequence
         else:
             # emit code for existing sequence
-            if sequence in dictionary:
-                compressedCodes.append(dictionary[sequence])
+            emit(dictionary[sequence])
 
             # if space allows, add new pattern to dictionary
             if dictSize < maxDictSize:
                 dictionary[newSequence] = dictSize
                 dictSize +=1
+                if dictSize > (1 << codeBits) and codeBits < maxCodeBits:
+                    codeBits += 1
 
             # reset to current byte
             sequence = currentByte
 
     # emit code for remaining sequence
     if sequence in dictionary:
-        compressedCodes.append(dictionary[sequence])
+        emit(dictionary[sequence])
+
+    payload = writer.getBytes()
 
     # produce header for decompression: 4-byte int, little-endian
-    outputBytes = bytearray(struct.pack('<i', dictSize))
-
-    # payload: 4-byte int per code
-    for code in compressedCodes:
-        outputBytes.extend(struct.pack('<i', code))
+    outputBytes = bytearray(struct.pack('<B', maxCodeBits))
+    outputBytes.extend(struct.pack('<I', numCodes))
+    outputBytes.extend(payload)
 
     return bytes(outputBytes)
 
